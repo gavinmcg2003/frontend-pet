@@ -27,7 +27,11 @@ async function jsonFetch(url, opts = {}) {
   const res = await fetch(url, opts);
   const text = await res.text();
   let data;
-  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
   if (!res.ok) throw new Error((data && (data.error || data.details)) || `HTTP ${res.status}`);
   return data;
 }
@@ -42,6 +46,20 @@ async function loadPets() {
     els.list.innerHTML = "";
     showError(e.message);
   }
+}
+
+/**
+ * Call your Azure Vision tagging function.
+ * Assumes you created something like:
+ * POST /pets/{id}/vision/tag
+ * body: { "imageUrl": "<SAS_URL>" }
+ */
+async function tagPet(petId, sasUrl) {
+  return jsonFetch(`${getApi()}/pets/${petId}/vision/tag`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ imageUrl: sasUrl }),
+  });
 }
 
 function renderPets(pets) {
@@ -67,6 +85,7 @@ function renderPets(pets) {
     `;
 
     const right = document.createElement("div");
+
     const btnSave = document.createElement("button");
     btnSave.textContent = "Save";
     btnSave.onclick = async () => {
@@ -80,7 +99,9 @@ function renderPets(pets) {
           body: JSON.stringify({ petName: name, petType: type }),
         });
         await loadPets();
-      } catch (e) { showError(e.message); }
+      } catch (e) {
+        showError(e.message);
+      }
     };
 
     const btnDel = document.createElement("button");
@@ -91,7 +112,9 @@ function renderPets(pets) {
       try {
         await jsonFetch(`${getApi()}/pets/${pet.id}`, { method: "DELETE" });
         await loadPets();
-      } catch (e) { showError(e.message); }
+      } catch (e) {
+        showError(e.message);
+      }
     };
 
     right.append(btnSave, btnDel);
@@ -104,9 +127,10 @@ function renderPets(pets) {
     imgBox.className = "imgBox";
 
     const first = Array.isArray(pet.mediaUrls) ? pet.mediaUrls[0] : null;
+
     if (first) {
       const img = document.createElement("img");
-      img.src = first; // should be SAS URL if blobs are private
+      img.src = first; // SAS URL
       img.alt = "pet";
       img.onerror = () => console.log("image failed", first);
       imgBox.appendChild(img);
@@ -135,7 +159,7 @@ function renderPets(pets) {
 
         if (!up.sasUrl) throw new Error("Upload did not return sasUrl");
 
-        // 2) Link (your backend should store sasUrl in mediaUrls)
+        // 2) Link (store sasUrl in mediaUrls)
         await jsonFetch(`${getApi()}/pets/${pet.id}/media/link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -148,9 +172,43 @@ function renderPets(pets) {
       }
     };
 
-    mediaRow.append(imgBox, file, btnUpload);
+    // ---- Vision Tagging UI ----
+    const tagsBox = document.createElement("div");
+    tagsBox.className = "small";
 
-    card.append(top, mediaRow);
+    const tags = Array.isArray(pet.visionTags) ? pet.visionTags : [];
+    if (tags.length) {
+      tagsBox.textContent = `visionTags: ${tags.join(", ")} (at ${pet.visionTaggedAt || "unknown"})`;
+    } else {
+      tagsBox.textContent = "visionTags: (none yet)";
+    }
+
+    const btnTag = document.createElement("button");
+    btnTag.textContent = "Tag image";
+    btnTag.onclick = async () => {
+      showError("");
+      try {
+        const sasUrl = Array.isArray(pet.mediaUrls) ? pet.mediaUrls[0] : null;
+        if (!sasUrl) return showError("Upload an image first (need a SAS URL).");
+
+        btnTag.disabled = true;
+        btnTag.textContent = "Tagging...";
+
+        await tagPet(pet.id, sasUrl);
+
+        // refresh list so you see visionTags saved to Cosmos
+        await loadPets();
+      } catch (e) {
+        showError(e.message);
+      } finally {
+        btnTag.disabled = false;
+        btnTag.textContent = "Tag image";
+      }
+    };
+
+    mediaRow.append(imgBox, file, btnUpload, btnTag);
+
+    card.append(top, mediaRow, tagsBox);
 
     if (Array.isArray(pet.mediaUrls) && pet.mediaUrls.length) {
       const urls = document.createElement("div");
@@ -193,3 +251,4 @@ els.create.onclick = async () => {
 };
 
 loadPets();
+
