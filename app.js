@@ -55,7 +55,7 @@ async function loadPets() {
  * body: { "imageUrl": "<SAS_URL>" }
  */
 async function tagPet(petId, sasUrl) {
-  return jsonFetch(`${getApi()}/pets/${petId}/vision/tag`, {
+  return jsonFetch(`${getApi()}/pets/${petId}/media/tag`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ imageUrl: sasUrl }),
